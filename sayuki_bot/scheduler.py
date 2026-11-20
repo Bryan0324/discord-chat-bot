@@ -25,6 +25,8 @@ from .state import BotStats
 from .tool_tags import MEMORY_TOOL_NAMES, find_balanced_tool_tags, strip_balanced_tool_tags
 from .ui import InteractiveAskView
 
+from .voice_recv import ASR_Sink
+import discord.ext.voice_recv as voice_recv
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +40,7 @@ CHECK_ROLES_RE = re.compile(r"\[\[CHECK_ROLES:\s*(\d+)\s*\]\]")
 USER_STATS_RE = re.compile(r"\[\[USER_STATS:\s*(\d+)\s*\]\]")
 LOOKUP_MEMORY_RE = re.compile(r"\[\[LOOKUP_MEMORY:\s*(\d+)\s*\]\]")
 CHECK_PRESENCE_RE = re.compile(r"\[\[CHECK_PRESENCE:\s*(\d+)\s*\]\]")
+JOIN_VOICE_RE = re.compile(r"\[\[JOIN_VOICE:\s*(\d+)\s*\]\]")
 READ_WEB_RE = re.compile(r"\[\[READ_WEB:\s*(https?://.*?)\s*\]\]", flags=re.DOTALL)
 VIEW_IMAGE_RE = re.compile(r"\[\[VIEW_IMAGE:\s*#?(msg_\d{1,})\s*\]\]")
 QUERY_TOOL_RE = re.compile(
@@ -1564,6 +1567,31 @@ class Scheduler:
             if self.user_stats_mgr and req.target_user_id:
                 await self.user_stats_mgr.record_no_response(req.target_user_id, req.target_user_name)
             return
+
+        if bool(JOIN_VOICE_RE.search(raw_response)):
+            voice_id = JOIN_VOICE_RE.search(raw_response)
+            if self.bot and voice_id:
+                voice_channel = self.bot.get_channel(int(voice_id.group(1)))
+                if voice_channel is None:
+                    logger.error("加入語音失敗：查不到頻道 ID %s", voice_id.group(1))
+                    return
+                voice_client = voice_channel.guild.voice_client
+
+                if voice_client:
+                    vc = await voice_channel.guild.voice_client.move_to(
+                        voice_channel,
+                        cls=voice_recv.VoiceRecvClient,
+                    )
+                else:
+                    vc = await voice_channel.connect(cls=voice_recv.VoiceRecvClient)
+
+                vc.listen(
+                    ASR_Sink(
+                        self.bot,
+                        voice_channel,
+                        room_registry=getattr(self.bot.sayuki, "room_registry", None),
+                    )
+                )
 
         for round_number in range(1, MAX_QUERY_TOOL_ROUNDS + 1):
             used_query_tool = await self._run_query_tools_once(

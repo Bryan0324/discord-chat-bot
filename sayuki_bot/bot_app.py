@@ -31,6 +31,7 @@ from .message_context import (
 from .models import Request
 from .presence import PresenceManager
 from .prompts import load_system_prompt
+from .rooms import Message as ChatMessage
 from .scheduler import Scheduler
 from .short_term_memory import ShortTermMemoryManager
 from .state import BotState
@@ -45,7 +46,7 @@ def create_bot(settings: Settings | None = None) -> commands.Bot:
     configure_logging()
     settings = settings or load_settings()
 
-    if not settings.openrouter_api_key:
+    if not settings.model.api_key:
         logger.error("請在 .env 中設定 OPENROUTER_API_KEY")
         raise SystemExit(1)
 
@@ -65,10 +66,9 @@ def create_bot(settings: Settings | None = None) -> commands.Bot:
     tool_stats_manager = ToolStatsManager(settings.tool_stats_file)
     invocation_logger = ConversationLogger(settings.invocation_log_file)
     llm_engine = OpenRouterLLM(
-        settings.openrouter_api_key,
-        settings.openrouter_model,
-        settings.openrouter_small_model,
-        settings.openrouter_vl_model,
+        settings.model,
+        settings.small_model,
+        settings.vl_model,
         tool_stats_manager,
         invocation_logger,
         settings.openrouter_use_reasoning_effort,
@@ -109,6 +109,7 @@ def create_bot(settings: Settings | None = None) -> commands.Bot:
     bot.sayuki = SimpleNamespace(
         settings=settings,
         state=state,
+        room_registry=state.room_registry,
         llm_engine=llm_engine,
         memory_manager=memory_manager,
         presence_manager=presence_manager,
@@ -152,7 +153,7 @@ def create_bot(settings: Settings | None = None) -> commands.Bot:
         return f"{label}：{status}"
 
     @asynccontextmanager
-    async def _typing_for_trigger(message: discord.Message, is_proactive: bool):
+    async def _typing_for_trigger(message: ChatMessage, is_proactive: bool):
         if is_proactive:
             yield
             return
@@ -207,7 +208,7 @@ def create_bot(settings: Settings | None = None) -> commands.Bot:
             ephemeral=True,
         )
 
-    def _collect_image_targets(messages: list[discord.Message]) -> dict[str, list[str]]:
+    def _collect_image_targets(messages: list[ChatMessage]) -> dict[str, list[str]]:
         targets: dict[str, list[str]] = {}
         for msg in messages:
             urls = [
@@ -220,7 +221,7 @@ def create_bot(settings: Settings | None = None) -> commands.Bot:
 
         return targets
 
-    def _collect_image_target_message_ids(messages: list[discord.Message]) -> dict[str, int]:
+    def _collect_image_target_message_ids(messages: list[ChatMessage]) -> dict[str, int]:
         targets: dict[str, int] = {}
         for msg in messages:
             if any(
@@ -233,9 +234,9 @@ def create_bot(settings: Settings | None = None) -> commands.Bot:
 
     def _collect_relevant_memory_user_ids(
         primary_user_id: int | str,
-        messages: list[discord.Message],
+        messages: list[ChatMessage],
         bot_user_id: int,
-        extra_messages: list[discord.Message] | None = None,
+        extra_messages: list[ChatMessage] | None = None,
     ) -> set[str]:
         user_ids = {str(primary_user_id)}
         for msg in [*messages, *(extra_messages or [])]:
@@ -695,16 +696,12 @@ def create_bot(settings: Settings | None = None) -> commands.Bot:
     async def on_presence_update(before: discord.Member, after: discord.Member):
         presence_manager.update_member(after)
 
-    @bot.event
-    async def on_message(message: discord.Message):
-        if message.author.bot:
-            return
-
+    async def process_chat_message(message: ChatMessage):
         if isinstance(message.author, discord.Member):
             presence_manager.update_member(message.author)
 
         bot_user_id = bot.user.id
-        cached_msgs = await get_cached_messages(message, state.channel_message_cache)
+        cached_msgs = await get_cached_messages(message)
         await user_stats_manager.record_seen_message(message)
         await short_memory_manager.record_channel_message(message, bot_user_id)
         is_mentioned, is_keyword, is_reply = get_attention_flags(message, bot_user_id)
@@ -746,7 +743,7 @@ def create_bot(settings: Settings | None = None) -> commands.Bot:
                     message.author.id,
                     message.author.display_name,
                     message.channel.id,
-                    getattr(message.channel, "name", str(message.channel.id)),
+                    message.channel.name,
                     attention_reason,
                 )
 
@@ -768,13 +765,13 @@ def create_bot(settings: Settings | None = None) -> commands.Bot:
                 )
                 memory_context = memory_manager.get_relevant_memory_context(relevant_memory_user_ids)
                 presence_context = presence_manager.build_context(
-                    getattr(message.guild, "id", None),
+                    message.guild.id if message.guild else None,
                     relevant_memory_user_ids,
                 )
                 await short_memory_manager.digest_pending(
                     llm_engine,
                     message.channel.id,
-                    getattr(message.channel, "name", str(message.channel.id)),
+                    message.channel.name,
                     message.author.id,
                     message.author.display_name,
                 )
@@ -798,7 +795,7 @@ def create_bot(settings: Settings | None = None) -> commands.Bot:
                     attention_reason,
                     memory_context,
                     memory_manager.get_permanent_memory(),
-                    memory_manager.get_server_memory(getattr(message.guild, "id", None)),
+                    memory_manager.get_server_memory(message.guild.id if message.guild else None),
                     presence_context,
                     short_memory_manager.build_context(message.channel.id, message.author.id),
                     chat_history,
@@ -839,9 +836,9 @@ def create_bot(settings: Settings | None = None) -> commands.Bot:
                 req.target_user_id = message.author.id
                 req.target_user_name = message.author.display_name
                 req.target_channel_id = message.channel.id
-                req.target_channel_name = getattr(message.channel, "name", str(message.channel.id))
-                req.target_guild_id = getattr(message.guild, "id", None)
-                req.target_guild_name = getattr(message.guild, "name", "")
+                req.target_channel_name = message.channel.name
+                req.target_guild_id = message.guild.id if message.guild else None
+                req.target_guild_name = message.guild.name if message.guild else ""
                 req.presence_context = presence_context
                 req.trigger_message_id = message.id
                 req.attention_reason = attention_reason
@@ -852,6 +849,16 @@ def create_bot(settings: Settings | None = None) -> commands.Bot:
                     except Exception:
                         await message.channel.send("（系統忙碌中）")
 
+    bot.sayuki.process_chat_message = process_chat_message
+
+    @bot.event
+    async def on_message(message: discord.Message):
+        if message.author.bot:
+            return
+
+        await process_chat_message(
+            ChatMessage.from_discord(message, registry=state.room_registry)
+        )
         await bot.process_commands(message)
 
     return bot

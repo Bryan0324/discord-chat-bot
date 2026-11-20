@@ -8,6 +8,7 @@ import discord
 
 from .config import TW_TZ
 from .message_context import build_discord_component_context
+from .rooms import Message
 
 
 CHANNEL_MENTION_RE = re.compile(r"<#(\d+)>")
@@ -141,7 +142,7 @@ async def _format_message_link(
 
 async def resolve_discord_references(
     bot: discord.Client,
-    source_message: discord.Message,
+    source_message: Message,
     text: str,
     *,
     component_context_cache: dict[int, str] | None = None,
@@ -155,7 +156,7 @@ async def resolve_discord_references(
     if not text:
         return info
 
-    guild = getattr(source_message, "guild", None)
+    guild = source_message.guild
     lines: list[str] = []
 
     channel_ids = []

@@ -14,12 +14,18 @@ TW_TZ = timezone(timedelta(hours=8))
 
 
 @dataclass(frozen=True)
+class ModelSettings:
+    name: str
+    api_key: str | None
+    url: str
+
+
+@dataclass(frozen=True)
 class Settings:
     token: str | None
-    openrouter_api_key: str | None
-    openrouter_model: str
-    openrouter_small_model: str
-    openrouter_vl_model: str
+    model: ModelSettings
+    small_model: ModelSettings
+    vl_model: ModelSettings
     openrouter_use_reasoning_effort: bool
     openrouter_reasoning_effort: str
     temp_dir: str
@@ -114,17 +120,31 @@ def _env_id_set(name: str) -> frozenset[int]:
 def load_settings() -> Settings:
     load_dotenv()
 
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").strip()
+    model_name = os.getenv("OPENROUTER_MODEL", "google/gemma-2-9b-it:free").strip()
+    small_model_name = os.getenv("OPENROUTER_SMALL_MODEL", model_name).strip()
+    vl_model_name = os.getenv(
+        "OPENROUTER_VL_MODEL",
+        "nvidia/nemotron-nano-12b-v2-vl:free",
+    ).strip()
+
     return Settings(
         token=os.getenv("BOT_TOKEN"),
-        openrouter_api_key=os.getenv("OPENROUTER_API_KEY"),
-        openrouter_model=os.getenv("OPENROUTER_MODEL", "google/gemma-2-9b-it:free"),
-        openrouter_small_model=os.getenv(
-            "OPENROUTER_SMALL_MODEL",
-            os.getenv("OPENROUTER_MODEL", "google/gemma-2-9b-it:free"),
+        model=ModelSettings(
+            name=model_name,
+            api_key=api_key,
+            url=base_url,
         ),
-        openrouter_vl_model=os.getenv(
-            "OPENROUTER_VL_MODEL",
-            "nvidia/nemotron-nano-12b-v2-vl:free",
+        small_model=ModelSettings(
+            name=small_model_name,
+            api_key=api_key,
+            url=base_url,
+        ),
+        vl_model=ModelSettings(
+            name=vl_model_name,
+            api_key=api_key,
+            url=base_url,
         ),
         openrouter_use_reasoning_effort=_env_bool("OPENROUTER_USE_REASONING_EFFORT", False),
         openrouter_reasoning_effort=os.getenv("OPENROUTER_REASONING_EFFORT", "medium").strip(),

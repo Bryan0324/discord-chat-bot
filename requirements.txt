@@ -1,5 +1,5 @@
 aiofiles
-discord.py>=2.4
+discord.py[voice]>=2.7.1
 matplotlib
 numpy
 openai
@@ -7,3 +7,4 @@ opencc-python-reimplemented
 python-dotenv
 requests
 sympy
+discord-ext-voice-recv @ git+https://github.com/rdphillips7/discord-ext-voice-recv.git@e0cc062ee2fe10311ffacdd4a4d00de707d6b1a7
