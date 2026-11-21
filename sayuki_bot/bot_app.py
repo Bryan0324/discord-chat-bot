@@ -788,7 +788,7 @@ def create_bot(settings: Settings | None = None) -> ChatBot:
 
         is_proactive = False
 
-        is_voice = True if hasattr(message, "pcm_data") else False
+        is_voice = True if message.type == "voice_transcript" else False
 
         if not (is_mentioned or is_keyword or is_reply) and not message.content.startswith("!") and not should_echo:
             last_time = state.proactive_cooldowns.get(
@@ -803,7 +803,6 @@ def create_bot(settings: Settings | None = None) -> ChatBot:
             user_name = message.author.display_name
             if is_voice:
                 attention_reason = "你在語音聊天，這是語音訊息"
-                logger.info("處理語音訊息中")
             elif is_proactive:
                 attention_reason = "主動查看，沒有人提及你"
             elif is_mentioned:

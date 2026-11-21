@@ -274,8 +274,10 @@ class Message:
 
     @classmethod
     def voice(cls, author: User, room: Room, text: str, *, pcm_data: bytes = b"") -> Message:
-        return cls(
+        ret = cls(
             author,
             room,
-            (Content("voice_transcript", text, {"pcm_size": len(pcm_data)}),),
+            (Content("voice_transcript", text, {"pcm_size": len(pcm_data)}),)
         )
+        ret.type = "voice_transcript"
+        return ret
