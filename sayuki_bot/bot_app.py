@@ -15,6 +15,11 @@ from discord import app_commands
 
 from .config import TW_TZ, Settings, configure_logging, load_settings
 from .asr import create_asr_manager
+from .voice_bridge import (
+    VoiceBridgeClient,
+    VoiceBridgeServer,
+    start_voice_bridge_process,
+)
 from .conversation_log import ConversationLogger
 from .discord_refs import resolve_discord_references
 from .llm import OpenRouterLLM
@@ -408,6 +413,35 @@ def create_bot(settings: Settings | None = None) -> ChatBot:
 
     sayuki_group = app_commands.Group(name="sayuki", description="管理員限定：紗月管理指令")
 
+    @bot.tree.command(name="join-voice", description="讓紗月加入指定語音頻道")
+    @app_commands.describe(channel="要加入的語音頻道")
+    async def join_voice(interaction: discord.Interaction, channel: discord.VoiceChannel):
+        if interaction.guild is None or channel.guild.id != interaction.guild.id:
+            await interaction.response.send_message("請選擇目前伺服器中的語音頻道", ephemeral=True)
+            return
+
+        voice_bridge = getattr(bot.sayuki, "voice_bridge_client", None)
+        if voice_bridge is None:
+            await interaction.response.send_message(
+                "Node.js 語音 bridge 未啟用",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            await voice_bridge.join(interaction.guild.id, channel.id)
+            await interaction.followup.send(
+                f"已加入語音頻道：<#{channel.id}>",
+                ephemeral=True,
+            )
+        except Exception as exc:
+            logger.error(f"Slash /join-voice 加入語音失敗: {exc}")
+            await interaction.followup.send(
+                f"加入語音頻道失敗：{exc}",
+                ephemeral=True,
+            )
+
     @sayuki_group.command(name="look", description="讓紗月主動查看目前頻道")
     @app_commands.describe(note="可選，補充一句想讓紗月留意的內容")
     async def sayuki_look(interaction: discord.Interaction, note: str | None = None):
@@ -673,6 +707,20 @@ def create_bot(settings: Settings | None = None) -> ChatBot:
 
     bot.tree.add_command(sayuki_group)
 
+    async def setup_hook():
+        if settings.voice_bridge_enabled:
+            await bot.sayuki.voice_bridge_server.start()
+            bot.sayuki.voice_bridge_process = start_voice_bridge_process(
+                Path(__file__).resolve().parent.parent,
+                settings.token or "",
+                settings.voice_bridge_url,
+                settings.voice_bridge_port,
+                settings.voice_bridge_pcm_port,
+                settings.voice_bridge_pcm_host,
+            )
+
+    bot.setup_hook = setup_hook
+
     @bot.event
     async def on_ready():
         logger.info("Bot 就緒: %s", bot.user)
@@ -739,6 +787,9 @@ def create_bot(settings: Settings | None = None) -> ChatBot:
             await message.channel.send(message.clean_content.strip())
 
         is_proactive = False
+
+        is_voice = True if hasattr(message, "pcm_data") else False
+
         if not (is_mentioned or is_keyword or is_reply) and not message.content.startswith("!") and not should_echo:
             last_time = state.proactive_cooldowns.get(
                 message.channel.id,
@@ -748,9 +799,12 @@ def create_bot(settings: Settings | None = None) -> ChatBot:
                 is_proactive = True
                 state.proactive_cooldowns[message.channel.id] = datetime.now(TW_TZ)
 
-        if is_mentioned or is_keyword or is_reply or is_proactive:
+        if is_voice or is_mentioned or is_keyword or is_reply or is_proactive:
             user_name = message.author.display_name
-            if is_proactive:
+            if is_voice:
+                attention_reason = "你在語音聊天，這是語音訊息"
+                logger.info("處理語音訊息中")
+            elif is_proactive:
                 attention_reason = "主動查看，沒有人提及你"
             elif is_mentioned:
                 attention_reason = "目前對話者直接@了你"
@@ -871,6 +925,18 @@ def create_bot(settings: Settings | None = None) -> ChatBot:
                         await message.channel.send("（系統忙碌中）")
 
     bot.sayuki.process_chat_message = process_chat_message
+    if settings.voice_bridge_enabled:
+        bot.sayuki.voice_bridge_client = VoiceBridgeClient(settings.voice_bridge_url)
+        bot.sayuki.voice_bridge_server = VoiceBridgeServer(
+            bot,
+            settings.voice_bridge_pcm_host,
+            settings.voice_bridge_pcm_port,
+            settings.voice_recordings_dir,
+        )
+    else:
+        bot.sayuki.voice_bridge_client = None
+        bot.sayuki.voice_bridge_server = None
+        bot.sayuki.voice_bridge_process = None
 
     @bot.event
     async def on_message(message: discord.Message):

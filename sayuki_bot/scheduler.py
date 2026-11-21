@@ -27,8 +27,6 @@ from .tool_tags import MEMORY_TOOL_NAMES, find_balanced_tool_tags, strip_balance
 from .ui import InteractiveAskView
 from .types import Message
 
-from .voice_recv import ASR_Sink
-import discord.ext.voice_recv as voice_recv
 
 logger = logging.getLogger(__name__)
 
@@ -1583,24 +1581,26 @@ class Scheduler:
                 if voice_channel is None:
                     logger.error("加入語音失敗：查不到頻道 ID %s", voice_id.group(1))
                     return
-                voice_client = voice_channel.guild.voice_client
-
-                if voice_client:
-                    vc = await voice_channel.guild.voice_client.move_to(
-                        voice_channel,
-                        cls=voice_recv.VoiceRecvClient,
-                    )
-                else:
-                    vc = await voice_channel.connect(cls=voice_recv.VoiceRecvClient)
-
-                vc.listen(
-                    ASR_Sink(
-                        self.bot,
-                        voice_channel,
-                        room_registry=getattr(self.bot.sayuki, "room_registry", None),
-                        asr_manager=getattr(self.bot.sayuki, "asr_manager", None),
-                        departure_channel=getattr(interaction_obj, "channel", None),
-                    )
+                voice_bridge = getattr(
+                    getattr(self.bot, "sayuki", None),
+                    "voice_bridge_client",
+                    None,
+                )
+                if voice_bridge is not None:
+                    try:
+                        await voice_bridge.join(
+                            getattr(voice_channel.guild, "id", 0),
+                            voice_channel.id,
+                        )
+                        logger.info(
+                            "已請求 Node.js voice bridge 加入頻道 %s",
+                            voice_channel.id,
+                        )
+                    except Exception as exc:
+                        logger.error("Node.js voice bridge 加入語音失敗: %s", exc)
+                    return
+                logger.error(
+                    "語音橋接未啟用，請設定 VOICE_BRIDGE_ENABLED=true"
                 )
 
         for round_number in range(1, MAX_QUERY_TOOL_ROUNDS + 1):

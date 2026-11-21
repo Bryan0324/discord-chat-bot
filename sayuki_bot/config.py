@@ -60,6 +60,12 @@ class Settings:
     invocation_log_file: Path
     tool_stats_file: Path
     reminders_file: Path
+    voice_recordings_dir: Path
+    voice_bridge_enabled: bool
+    voice_bridge_url: str
+    voice_bridge_port: int
+    voice_bridge_pcm_host: str
+    voice_bridge_pcm_port: int
     command_sync_guild_ids: frozenset[int]
     admin_user_ids: frozenset[int]
     developer_user_ids: frozenset[int]
@@ -70,7 +76,6 @@ def configure_logging() -> None:
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
     )
-    logging.getLogger("discord.ext.voice_recv.reader").setLevel(logging.WARNING)
 
 
 def _env_int(name: str, default: int) -> int:
@@ -206,6 +211,18 @@ def load_settings() -> Settings:
         invocation_log_file=_env_path("INVOCATION_LOG_FILE", BASE_DIR / "logs" / "invocation.jsonl"),
         tool_stats_file=_env_path("TOOL_STATS_FILE", BASE_DIR / "tool_stats.json"),
         reminders_file=_env_path("REMINDERS_FILE", BASE_DIR / "reminders.json"),
+        voice_recordings_dir=_env_path(
+            "VOICE_RECORDINGS_DIR",
+            BASE_DIR / "logs" / "voice",
+        ),
+        voice_bridge_enabled=_env_bool("VOICE_BRIDGE_ENABLED", True),
+        voice_bridge_url=os.getenv(
+            "VOICE_BRIDGE_URL",
+            "http://127.0.0.1:8787",
+        ).strip(),
+        voice_bridge_port=_env_int("VOICE_BRIDGE_PORT", 8787),
+        voice_bridge_pcm_host=os.getenv("VOICE_BRIDGE_PCM_HOST", "127.0.0.1").strip(),
+        voice_bridge_pcm_port=_env_int("VOICE_BRIDGE_PCM_PORT", 8788),
         command_sync_guild_ids=_env_id_set("COMMAND_SYNC_GUILD_IDS"),
         admin_user_ids=_env_id_set("ADMIN_USER_IDS"),
         developer_user_ids=_env_id_set("DEVELOPER_USER_IDS"),
