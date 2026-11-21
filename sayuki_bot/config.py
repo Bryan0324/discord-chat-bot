@@ -26,6 +26,9 @@ class Settings:
     model: ModelSettings
     small_model: ModelSettings
     vl_model: ModelSettings
+    asr_model: ModelSettings | None
+    asr_provider: str
+    asr_language: str | None
     openrouter_use_reasoning_effort: bool
     openrouter_reasoning_effort: str
     temp_dir: str
@@ -67,6 +70,7 @@ def configure_logging() -> None:
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
     )
+    logging.getLogger("discord.ext.voice_recv.reader").setLevel(logging.WARNING)
 
 
 def _env_int(name: str, default: int) -> int:
@@ -128,6 +132,25 @@ def load_settings() -> Settings:
         "OPENROUTER_VL_MODEL",
         "nvidia/nemotron-nano-12b-v2-vl:free",
     ).strip()
+    asr_model_name = os.getenv("ASR_MODEL", "").strip()
+    asr_model = None
+    if asr_model_name:
+        asr_provider = os.getenv("ASR_PROVIDER", "nvidia").strip().lower()
+        provider_default_urls = {
+            "nvidia": "https://integrate.api.nvidia.com/v1",
+            "openai": "https://api.openai.com/v1",
+            "elevenlabs": "https://api.elevenlabs.io",
+        }
+        asr_model = ModelSettings(
+            name=asr_model_name,
+            api_key=os.getenv("ASR_API_KEY") or api_key,
+            url=os.getenv(
+                "ASR_BASE_URL",
+                provider_default_urls.get(asr_provider, "https://integrate.api.nvidia.com/v1"),
+            ).strip(),
+        )
+    asr_provider = os.getenv("ASR_PROVIDER", "nvidia").strip().lower()
+    asr_language = os.getenv("ASR_LANGUAGE", "").strip() or None
 
     return Settings(
         token=os.getenv("BOT_TOKEN"),
@@ -146,6 +169,9 @@ def load_settings() -> Settings:
             api_key=api_key,
             url=base_url,
         ),
+        asr_model=asr_model,
+        asr_provider=asr_provider,
+        asr_language=asr_language,
         openrouter_use_reasoning_effort=_env_bool("OPENROUTER_USE_REASONING_EFFORT", False),
         openrouter_reasoning_effort=os.getenv("OPENROUTER_REASONING_EFFORT", "medium").strip(),
         temp_dir=os.getenv("TEMP_DIR", "./temp"),

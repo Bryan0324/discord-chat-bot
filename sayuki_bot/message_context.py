@@ -6,7 +6,7 @@ from datetime import datetime
 import discord
 
 from .config import TW_TZ
-from .rooms import Message
+from .types import Message
 from .state import BotStats
 
 
@@ -17,6 +17,8 @@ MAX_DISCORD_COMPONENT_CONTEXT_CHARS = 2200
 
 
 async def get_cached_messages(message: Message) -> list[Message]:
+    if not isinstance(message, Message):
+        raise TypeError("get_cached_messages expects rooms.Message")
     return await message.room.get_messages(message)
 
 
@@ -496,6 +498,10 @@ async def build_chat_history(
     component_cache_ttl_seconds: int = 30,
     component_cache_max_items: int = 500,
 ) -> str:
+    if not isinstance(current_message, Message):
+        raise TypeError("build_chat_history expects rooms.Message")
+    if any(not isinstance(msg, Message) for msg in [*history_msgs, *cached_msgs]):
+        raise TypeError("build_chat_history expects rooms.Message history")
     chat_history = ""
     user_labels = {
         msg.author.id: _message_author_label(msg, bot_user_id)

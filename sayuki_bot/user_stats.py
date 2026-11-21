@@ -8,7 +8,7 @@ from typing import Any
 
 import aiofiles
 from .config import TW_TZ
-from .rooms import Message
+from .types import Message
 
 
 def _now_text() -> str:
@@ -64,6 +64,8 @@ class UserStatsManager:
         return str(message.channel.id), message.channel.name
 
     async def record_seen_message(self, message: Message) -> None:
+        if not isinstance(message, Message):
+            raise TypeError("record_seen_message expects rooms.Message")
         if message.author.bot:
             return
 

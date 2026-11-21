@@ -20,10 +20,12 @@ from .conversation_log import ConversationLogger
 from .llm import OpenRouterLLM
 from .memory import MemoryManager
 from .models import Request
+from .types import Message as ChatMessage
 from .search import read_web_page
 from .state import BotStats
 from .tool_tags import MEMORY_TOOL_NAMES, find_balanced_tool_tags, strip_balanced_tool_tags
 from .ui import InteractiveAskView
+from .types import Message
 
 from .voice_recv import ASR_Sink
 import discord.ext.voice_recv as voice_recv
@@ -672,7 +674,12 @@ class Scheduler:
                     detail = "建立討論串失敗，找不到目標頻道"
                     continue
 
-                source_message = interaction_obj if isinstance(interaction_obj, discord.Message) else getattr(interaction_obj, "message", None)
+                if isinstance(interaction_obj, ChatMessage):
+                    source_message = interaction_obj.message
+                elif isinstance(interaction_obj, discord.Message):
+                    source_message = interaction_obj
+                else:
+                    source_message = getattr(interaction_obj, "message", None)
                 if source_message and hasattr(source_message, "create_thread"):
                     thread = await source_message.create_thread(name=title, auto_archive_duration=1440)
                 else:
@@ -1217,7 +1224,7 @@ class Scheduler:
         interaction_obj,
         text: str,
         is_proactive: bool = False,
-        reply_targets: dict[str, object] | None = None,
+        reply_targets: dict[str, Message] | None = None,
         embed=None,
         view=None,
         files=None,
@@ -1270,7 +1277,8 @@ class Scheduler:
                     reply_target = reply_targets.get(reply_target_key)
                 if reply_target:
                     await reply_target.reply(**kwargs, mention_author=False)
-                    used_reply_target_keys.add(reply_target_key)
+                    if reply_target_key:
+                        used_reply_target_keys.add(reply_target_key)
                 elif isinstance(interaction_obj, discord.Interaction):
                     if not interaction_obj.response.is_done():
                         await interaction_obj.response.send_message(**kwargs)
@@ -1590,6 +1598,8 @@ class Scheduler:
                         self.bot,
                         voice_channel,
                         room_registry=getattr(self.bot.sayuki, "room_registry", None),
+                        asr_manager=getattr(self.bot.sayuki, "asr_manager", None),
+                        departure_channel=getattr(interaction_obj, "channel", None),
                     )
                 )
 
@@ -1876,7 +1886,14 @@ class Scheduler:
             started = perf_counter()
             success = False
             try:
-                target_msg = interaction_obj if isinstance(interaction_obj, discord.Message) else interaction_obj.message
+                if isinstance(interaction_obj, ChatMessage):
+                    target_msg = interaction_obj.message
+                elif isinstance(interaction_obj, discord.Message):
+                    target_msg = interaction_obj
+                else:
+                    target_msg = getattr(interaction_obj, "message", None)
+                if target_msg is None:
+                    return
                 await target_msg.add_reaction(emoji.strip())
                 success = True
             except Exception:

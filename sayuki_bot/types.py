@@ -14,9 +14,15 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from itertools import count
 from typing import Any, AsyncIterator, Iterable
+from types import SimpleNamespace
 
 import discord
+from discord.ext import commands
 
+class ChatBot(commands.Bot):
+    def __init__(self, command_prefix: str, intents: discord.Intents) -> None:
+        super().__init__(command_prefix=command_prefix, intents=intents)
+        self.sayuki: SimpleNamespace
 
 @dataclass(frozen=True)
 class Content:
@@ -40,6 +46,7 @@ class Status:
     def __init__(self, name: str) -> None:
         self.localized_name = self.TRANSLATION.get(name, name)
         self.raw_name = name
+        self.name = name
 
     @classmethod
     def from_discord(cls, status: discord.Status) -> Status:
@@ -56,6 +63,7 @@ class User:
         *,
         bot: bool = False,
         source: Any = None,
+        activities: Iterable[Any] = (),
     ) -> None:
         self.guild_id = guild_id
         self.user_id = user_id
@@ -65,15 +73,14 @@ class User:
         self.status = status
         self.bot = bot
         self.source = source
+        self.activities = tuple(activities)
 
     @classmethod
     def from_discord(cls, ori_user: discord.Member | discord.abc.User) -> User:
-        guild_id = ori_user.guild.id if isinstance(ori_user, discord.Member) else None
-        status = (
-            Status.from_discord(ori_user.status)
-            if isinstance(ori_user, discord.Member)
-            else Status("unknown")
-        )
+        guild = getattr(ori_user, "guild", None)
+        guild_id = getattr(guild, "id", None)
+        raw_status = getattr(ori_user, "status", None)
+        status = Status.from_discord(raw_status) if raw_status is not None else Status("unknown")
         return cls(
             guild_id,
             ori_user.id,
@@ -81,6 +88,7 @@ class User:
             status,
             bot=ori_user.bot,
             source=ori_user,
+            activities=tuple(getattr(ori_user, "activities", ()) or ())
         )
 
 
@@ -198,7 +206,7 @@ class Message:
         *,
         message_id: int | None = None,
         created_at: datetime | None = None,
-        source: Any = None,
+        source: discord.Message | None = None,
         reference: Any = None,
         mentions: Iterable[User] = (),
         attachments: Iterable[Any] = (),
@@ -226,13 +234,6 @@ class Message:
         self.thread = thread
         self.type = getattr(source, "type", None)
         self.guild = room.guild
-
-    def __getattr__(self, name: str) -> Any:
-        """Expose provider-only fields while keeping the core API provider-neutral."""
-        source = self.__dict__.get("source")
-        if source is not None:
-            return getattr(source, name)
-        raise AttributeError(name)
 
     @property
     def content(self) -> str:

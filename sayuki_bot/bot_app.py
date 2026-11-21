@@ -12,9 +12,9 @@ from types import SimpleNamespace
 
 import discord
 from discord import app_commands
-from discord.ext import commands
 
 from .config import TW_TZ, Settings, configure_logging, load_settings
+from .asr import create_asr_manager
 from .conversation_log import ConversationLogger
 from .discord_refs import resolve_discord_references
 from .llm import OpenRouterLLM
@@ -31,7 +31,8 @@ from .message_context import (
 from .models import Request
 from .presence import PresenceManager
 from .prompts import load_system_prompt
-from .rooms import Message as ChatMessage
+from .types import Message as ChatMessage
+from .types import User, ChatBot
 from .scheduler import Scheduler
 from .short_term_memory import ShortTermMemoryManager
 from .state import BotState
@@ -41,8 +42,7 @@ from .user_stats import UserStatsManager
 
 logger = logging.getLogger(__name__)
 
-
-def create_bot(settings: Settings | None = None) -> commands.Bot:
+def create_bot(settings: Settings | None = None) -> ChatBot:
     configure_logging()
     settings = settings or load_settings()
 
@@ -55,7 +55,7 @@ def create_bot(settings: Settings | None = None) -> commands.Bot:
     intents = discord.Intents.default()
     intents.message_content = True
     intents.presences = True
-    bot = commands.Bot(command_prefix="!", intents=intents)
+    bot: ChatBot = ChatBot(command_prefix="!", intents=intents)
 
     state = BotState()
     presence_manager = PresenceManager(
@@ -74,6 +74,13 @@ def create_bot(settings: Settings | None = None) -> commands.Bot:
         settings.openrouter_use_reasoning_effort,
         settings.openrouter_reasoning_effort,
     )
+    asr_manager = None
+    if settings.asr_model is not None:
+        asr_manager = create_asr_manager(
+            settings.asr_provider,
+            settings.asr_model,
+            settings.asr_language,
+        )
     memory_manager = MemoryManager(
         settings.memory_db_file,
         settings.permanent_memory_db_file,
@@ -111,6 +118,7 @@ def create_bot(settings: Settings | None = None) -> commands.Bot:
         state=state,
         room_registry=state.room_registry,
         llm_engine=llm_engine,
+        asr_manager=asr_manager,
         memory_manager=memory_manager,
         presence_manager=presence_manager,
         user_stats_manager=user_stats_manager,
@@ -286,6 +294,13 @@ def create_bot(settings: Settings | None = None) -> commands.Bot:
         if not history_msgs:
             return False, "目前讀不到近期訊息"
 
+        history_msgs = [
+            ChatMessage.from_discord(
+                msg,
+                registry=state.room_registry,
+            )
+            for msg in history_msgs
+        ]
         current_message = history_msgs[-1]
         cached_msgs = history_msgs
         reference_text = "\n".join(msg.content for msg in history_msgs[-settings.history_limit:])
@@ -694,13 +709,19 @@ def create_bot(settings: Settings | None = None) -> commands.Bot:
 
     @bot.event
     async def on_presence_update(before: discord.Member, after: discord.Member):
-        presence_manager.update_member(after)
+        presence_manager.update_member(User.from_discord(after))
 
     async def process_chat_message(message: ChatMessage):
-        if isinstance(message.author, discord.Member):
-            presence_manager.update_member(message.author)
+        if not isinstance(message, ChatMessage):
+            raise TypeError("process_chat_message expects rooms.Message")
+        if not bot.user:
+            logger.error("bot 尚未啟動，訊息：", message, "未處理")
+            return
 
         bot_user_id = bot.user.id
+
+        presence_manager.update_member(message.author)
+
         cached_msgs = await get_cached_messages(message)
         await user_stats_manager.record_seen_message(message)
         await short_memory_manager.record_channel_message(message, bot_user_id)

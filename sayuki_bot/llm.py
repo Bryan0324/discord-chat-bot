@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from openai import AsyncOpenAI
+from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 
 import math_tools
 
@@ -137,7 +138,7 @@ class OpenRouterLLM:
         )
 
     async def describe_image_async(self, image_url: str) -> str:
-        messages = [
+        messages: list[ChatCompletionMessageParam] = [
             {
                 "role": "user",
                 "content": [
@@ -191,7 +192,7 @@ class OpenRouterLLM:
             return f"圖片解析失敗 ({exc})"
 
     async def _process_browser_scan_async(self, scan: BrowserScan) -> str:
-        messages = [
+        messages: list[ChatCompletionMessageParam] = [
             {
                 "role": "system",
                 "content": (
@@ -259,7 +260,7 @@ class OpenRouterLLM:
         use_reasoning_effort: bool = False,
         call_type: str = "summary",
     ) -> str:
-        messages = [
+        messages: list[ChatCompletionMessageParam] = [
             {
                 "role": "system",
                 "content": (

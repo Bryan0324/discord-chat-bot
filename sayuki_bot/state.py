@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from .config import TW_TZ
-from .rooms import RoomRegistry
+from .types import RoomRegistry
 
 
 @dataclass

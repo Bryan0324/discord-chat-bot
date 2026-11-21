@@ -10,7 +10,7 @@ from typing import Any
 
 import aiofiles
 from .config import TW_TZ
-from .rooms import Message
+from .types import Message
 
 
 def _now() -> datetime:
@@ -194,6 +194,8 @@ class ShortTermMemoryManager:
                 await file.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
 
     async def record_channel_message(self, message: Message, bot_user_id: int) -> None:
+        if not isinstance(message, Message):
+            raise TypeError("record_channel_message expects rooms.Message")
         content = message.clean_content.strip()
         attachments = _message_attachment_summary(message)
         if not content and not attachments:
